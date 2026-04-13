@@ -3,7 +3,7 @@ use memory_addr::VirtAddr;
 #[cfg(feature = "uspace")]
 use memory_addr::PhysAddr;
 
-include_asm_marcos!();
+include_asm_marcos!();   // 假设该宏定义了 POP_GENERAL_REGS 等
 
 /// General registers of RISC-V.
 #[allow(missing_docs)]
@@ -263,16 +263,16 @@ impl UspaceContext {
         asm!("
             mv      sp, {tf}
             
-            STR     gp, {kernel_trap_addr}, 2
-            LDR     gp, sp, 2
+            sd      gp, 16({kernel_trap_addr})   // STR gp, {kernel_trap_addr}, 2
+            ld      gp, 16(sp)                  // LDR gp, sp, 2
 
-            STR     tp, {kernel_trap_addr}, 3
-            LDR     tp, sp, 3
+            sd      tp, 24({kernel_trap_addr})   // STR tp, {kernel_trap_addr}, 3
+            ld      tp, 24(sp)                  // LDR tp, sp, 3
 
-            LDR     t0, sp, 32
+            ld      t0, 256(sp)                 // LDR t0, sp, 32
             csrw    sstatus, t0
             POP_GENERAL_REGS
-            LDR     sp, sp, 1
+            ld      sp, 8(sp)                   // LDR sp, sp, 1
             sret",
             tf = in(reg) &(self.0),
             kernel_trap_addr = in(reg) kernel_trap_addr,
@@ -281,43 +281,42 @@ impl UspaceContext {
     }
 }
 
-#[naked]
+#[unsafe(naked)]
 unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_task: &TaskContext) {
-    asm!(
+    core::arch::naked_asm!(
         "
         // save old context (callee-saved registers)
-        STR     ra, a0, 0
-        STR     sp, a0, 1
-        STR     s0, a0, 2
-        STR     s1, a0, 3
-        STR     s2, a0, 4
-        STR     s3, a0, 5
-        STR     s4, a0, 6
-        STR     s5, a0, 7
-        STR     s6, a0, 8
-        STR     s7, a0, 9
-        STR     s8, a0, 10
-        STR     s9, a0, 11
-        STR     s10, a0, 12
-        STR     s11, a0, 13
+        sd      ra, 0(a0)       // STR ra, a0, 0
+        sd      sp, 8(a0)       // STR sp, a0, 1
+        sd      s0, 16(a0)      // STR s0, a0, 2
+        sd      s1, 24(a0)      // STR s1, a0, 3
+        sd      s2, 32(a0)      // STR s2, a0, 4
+        sd      s3, 40(a0)      // STR s3, a0, 5
+        sd      s4, 48(a0)      // STR s4, a0, 6
+        sd      s5, 56(a0)      // STR s5, a0, 7
+        sd      s6, 64(a0)      // STR s6, a0, 8
+        sd      s7, 72(a0)      // STR s7, a0, 9
+        sd      s8, 80(a0)      // STR s8, a0, 10
+        sd      s9, 88(a0)      // STR s9, a0, 11
+        sd      s10, 96(a0)     // STR s10, a0, 12
+        sd      s11, 104(a0)    // STR s11, a0, 13
 
         // restore new context
-        LDR     s11, a1, 13
-        LDR     s10, a1, 12
-        LDR     s9, a1, 11
-        LDR     s8, a1, 10
-        LDR     s7, a1, 9
-        LDR     s6, a1, 8
-        LDR     s5, a1, 7
-        LDR     s4, a1, 6
-        LDR     s3, a1, 5
-        LDR     s2, a1, 4
-        LDR     s1, a1, 3
-        LDR     s0, a1, 2
-        LDR     sp, a1, 1
-        LDR     ra, a1, 0
+        ld      s11, 104(a1)    // LDR s11, a1, 13
+        ld      s10, 96(a1)     // LDR s10, a1, 12
+        ld      s9, 88(a1)      // LDR s9, a1, 11
+        ld      s8, 80(a1)      // LDR s8, a1, 10
+        ld      s7, 72(a1)      // LDR s7, a1, 9
+        ld      s6, 64(a1)      // LDR s6, a1, 8
+        ld      s5, 56(a1)      // LDR s5, a1, 7
+        ld      s4, 48(a1)      // LDR s4, a1, 6
+        ld      s3, 40(a1)      // LDR s3, a1, 5
+        ld      s2, 32(a1)      // LDR s2, a1, 4
+        ld      s1, 24(a1)      // LDR s1, a1, 3
+        ld      s0, 16(a1)      // LDR s0, a1, 2
+        ld      sp, 8(a1)       // LDR sp, a1, 1
+        ld      ra, 0(a1)       // LDR ra, a1, 0
 
-        ret",
-        options(noreturn),
+        ret"
     )
 }
