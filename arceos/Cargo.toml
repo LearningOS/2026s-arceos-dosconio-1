@@ -93,7 +93,14 @@ elf = { path = "modules/elf" }
 axfs_ramfs = { path = "./axfs_ramfs" }
 
 [patch.crates-io]
-kernel_guard = { path = "../crates/kernel_guard"} 
+kernel_guard = { path = "../crates/kernel_guard"}
+flatten_objects = { path = "../vendor/flatten_objects"}
+
+# Patch axdriver crates to use doc_cfg instead of doc_auto_cfg
+[patch."https://github.com/arceos-org/axdriver_crates.git"]
+axdriver_block = { path = "../vendor/axdriver_crates/axdriver_block" }
+axdriver_virtio = { path = "../vendor/axdriver_crates/axdriver_virtio" }
+axdriver_base = { path = "../vendor/axdriver_crates/axdriver_base" } 
 
 [profile.release]
 lto = true
