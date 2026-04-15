@@ -60,7 +60,8 @@ jobs:
       - name: Setup binutils wrappers
         run: |
           SYSROOT=$(rustc --print sysroot)
-          LLVM_BIN="$SYSROOT/lib/rustlib/x86_64-unknown-linux-gnu/bin"
+          LLVM_BIN="$SYSROOT/lib/rustlib/riscv64gc-unknown-linux-gnu/bin"
+          LLVM_LIB="$SYSROOT/lib"
           
           mkdir -p ~/.cargo/bin
           cp "$LLVM_BIN/llvm-objcopy" ~/.cargo/bin/rust-objcopy
@@ -70,6 +71,7 @@ jobs:
           chmod +x ~/.cargo/bin/rust-objdump
           
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=$LLVM_LIB:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
 
       - name: Run basic
