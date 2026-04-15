@@ -165,6 +165,63 @@ impl VfsNodeOps for DirNode {
         }
     }
 
+    fn rename(&self, src_path: &str, dst_path: &str) -> VfsResult {
+        log::debug!("rename at ramfs: {} -> {}", src_path, dst_path);
+
+        // 分割源路径
+        let (src_name, src_rest) = split_path(src_path);
+        // 如果源路径有多个路径组件，递归进入子目录处理  
+        if src_rest.is_some() {
+            match src_name {
+                "" | "." => return self.rename(src_rest.unwrap(), dst_path),
+                ".." => return self.parent().ok_or(VfsError::NotFound)?.rename(src_rest.unwrap(), dst_path),
+                _ => {
+                    let subdir = self
+                        .children
+                        .read()
+                        .get(src_name)
+                        .ok_or(VfsError::NotFound)?
+                        .clone();
+                    return subdir.rename(src_rest.unwrap(), dst_path);
+                }
+            }
+        }
+        // 此时src_name是最后一个组件（要重命名的文件）
+        // 现在提取dst_path的最后一个组件
+
+        // 对于dst_path，我们只需要提取文件名
+        // 可能是"/tmp/f2"或"f2"或"subdir/f2"
+        let dst_path = dst_path.trim_start_matches('/');
+
+        // 查找目标路径的最后一个组件
+        let dst_name = if let Some(pos) = dst_path.rfind('/') {
+            &dst_path[pos + 1..]
+        } else {
+            dst_path
+        };
+
+        // 在同一目录内简单重命名
+        
+        // 检查源文件是否存在
+        if !self.exist(src_name) {
+            return Err(VfsError::NotFound);
+        }
+
+        // 检查目标文件是否已存在
+        if self.exist(dst_name) {
+            return Err(VfsError::AlreadyExists);
+        }
+
+        // 将节点从源移动到目标
+        let mut children = self.children.write();
+        if let Some(node) = children.remove(src_name) {
+            children.insert(dst_name.into(), node);
+            Ok(())
+        } else {
+            Err(VfsError::NotFound)
+        }
+    }
+
     axfs_vfs::impl_vfs_dir_default! {}
 }
 

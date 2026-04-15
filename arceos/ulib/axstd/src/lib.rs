@@ -55,10 +55,19 @@ extern crate alloc;
 
 #[cfg(feature = "alloc")]
 #[doc(no_inline)]
-pub use alloc::{boxed, collections, format, string, vec};
+pub use alloc::{boxed, format, string, vec};
 
 #[doc(no_inline)]
 pub use core::{arch, cell, cmp, hint, marker, mem, ops, ptr, slice, str};
+
+#[cfg(feature = "alloc")]
+pub mod collections {
+    // Re-export types from alloc::collections
+    pub use alloc::collections::*;
+    
+    // Re-export hash-based collections from hashbrown
+    pub use hashbrown::{hash_map, hash_set, HashMap, HashSet};
+}
 
 #[macro_use]
 mod macros;
