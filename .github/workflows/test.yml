@@ -46,7 +46,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: nightly-2024-09-04
+          toolchain: nightly
+          components: rust-src, llvm-tools, clippy, rustfmt
+          targets: x86_64-unknown-none, riscv64gc-unknown-none-elf, aarch64-unknown-none, aarch64-unknown-none-softfloat, loongarch64-unknown-none
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
           components: rust-src, llvm-tools, clippy, rustfmt
           targets: x86_64-unknown-none, riscv64gc-unknown-none-elf, aarch64-unknown-none, aarch64-unknown-none-softfloat, loongarch64-unknown-none
 
@@ -54,8 +61,16 @@ jobs:
         run: |
           SYSROOT=$(rustc --print sysroot)
           LLVM_BIN="$SYSROOT/lib/rustlib/x86_64-unknown-linux-gnu/bin"
+          
+          mkdir -p ~/.cargo/bin
           cp "$LLVM_BIN/llvm-objcopy" ~/.cargo/bin/rust-objcopy
           cp "$LLVM_BIN/llvm-objdump" ~/.cargo/bin/rust-objdump
+          
+          chmod +x ~/.cargo/bin/rust-objcopy
+          chmod +x ~/.cargo/bin/rust-objdump
+          
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
 
       - name: Run basic
         id: basic_points
