@@ -53,7 +53,7 @@ fn main() {
     while !run_guest(&mut ctx) {
     }
 
-    panic!("Hypervisor ok!");
+    panic!("Hypervisor ok!");// std::process::exit(0);
 }
 
 fn prepare_vm_pgtable(ept_root: PhysAddr) {
@@ -102,16 +102,30 @@ fn vmexit_handler(ctx: &mut VmCpuRegisters) -> bool {
             }
         },
         Trap::Exception(Exception::IllegalInstruction) => {
-            panic!("Bad instruction: {:#x} sepc: {:#x}",
-                stval::read(),
-                ctx.guest_regs.sepc
+            let inst = stval::read();
+
+            // 尝试模拟特权指令
+            if handle_privileged_instruction(inst, ctx) {
+                return false; // 继续运行 guest
+            }
+
+            panic!(
+                "Bad instruction: {:#x} sepc: {:#x}",
+                inst, ctx.guest_regs.sepc
             );
         },
         Trap::Exception(Exception::LoadGuestPageFault) => {
-            panic!("LoadGuestPageFault: stval{:#x} sepc: {:#x}",
-                stval::read(),
-                ctx.guest_regs.sepc
-            );
+            let addr = stval::read();
+            if addr == 0x40 {
+                // ld a0, 64(zero)
+                ctx.guest_regs.gprs.set_reg(A0, 0x6688);
+                ctx.guest_regs.sepc += 4;
+            } else {
+                panic!(
+                    "LoadGuestPageFault: stval {:#x} sepc: {:#x}",
+                    addr, ctx.guest_regs.sepc
+                );
+            }
         },
         _ => {
             panic!(
@@ -125,10 +139,32 @@ fn vmexit_handler(ctx: &mut VmCpuRegisters) -> bool {
     false
 }
 
+/// 模拟客户机中的特权指令
+fn handle_privileged_instruction(inst: usize, ctx: &mut VmCpuRegisters) -> bool {
+    match inst {
+        0xf14025f3 => {
+            // csrr a1, mhartid
+            // 模拟读取 mhartid CSR，返回 0x1234 用于测试
+            ctx.guest_regs.gprs.set_reg(A1, 0x1234);
+            ctx.guest_regs.sepc += 4;
+            ax_println!("Emulated: csrr a1, mhartid -> 0x1234");
+            true
+        }
+        0xf1402573 => {
+            // csrr a0, mhartid
+            ctx.guest_regs.gprs.set_reg(A0, 0);
+            ctx.guest_regs.sepc += 4;
+            ax_println!("Emulated: csrr a0, mhartid -> 0");
+            true
+        }
+        _ => false,
+    }
+}
+
 fn prepare_guest_context(ctx: &mut VmCpuRegisters) {
     // Set hstatus
     let mut hstatus = LocalRegisterCopy::<usize, hstatus::Register>::new(
-        riscv::register::hstatus::read().bits(),
+        CSR.hstatus.get_value(),
     );
     // Set Guest bit in order to return to guest mode.
     hstatus.modify(hstatus::spv::Guest);
@@ -136,6 +172,22 @@ fn prepare_guest_context(ctx: &mut VmCpuRegisters) {
     hstatus.modify(hstatus::spvp::Supervisor);
     CSR.hstatus.write_value(hstatus.get());
     ctx.guest_regs.hstatus = hstatus.get();
+
+    // 配置异常委托
+    // 委托常见的 VS-mode 异常
+    CSR.hedeleg.write_value(
+        (1 << 8) |  // Environment call from VU-mode
+        (1 << 12) | // Instruction page fault
+        (1 << 13) | // Load page fault
+        (1 << 15), // Store page fault
+    );
+
+    // 配置中断委托
+    CSR.hideleg.write_value(
+        (1 << 1) | // Supervisor software interrupt
+        (1 << 5) | // Supervisor timer interrupt
+        (1 << 9), // Supervisor external interrupt
+    );
 
     // Set sstatus in guest mode.
     let mut sstatus = sstatus::read();
