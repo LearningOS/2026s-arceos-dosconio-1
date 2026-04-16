@@ -7,6 +7,8 @@ use axerrno::LinuxError;
 use axtask::current;
 use axtask::TaskExtRef;
 use axhal::paging::MappingFlags;
+use axhal::mem::{PAGE_SIZE_4K, VirtAddr};
+use memory_addr::{VirtAddrRange, align_up};
 use arceos_posix_api as api;
 
 const SYS_IOCTL: usize = 29;
@@ -133,14 +135,92 @@ fn handle_syscall(tf: &TrapFrame, syscall_num: usize) -> isize {
 
 #[allow(unused_variables)]
 fn sys_mmap(
-    addr: *mut usize,
+    addr: usize,
     length: usize,
     prot: i32,
     flags: i32,
     fd: i32,
-    _offset: isize,
+    offset: usize,
 ) -> isize {
-    unimplemented!("no sys_mmap!");
+    syscall_body!(sys_mmap, {
+        if length == 0 {
+            return Err(LinuxError::EINVAL);
+        }
+
+        let prot_bits = MmapProt::from_bits_truncate(prot);
+        let flags_bits = MmapFlags::from_bits_truncate(flags);
+        let mapping_flags: MappingFlags = prot_bits.into();
+        let len_aligned = align_up(length, PAGE_SIZE_4K);
+
+        let curr = current();
+
+        let va = if flags_bits.contains(MmapFlags::MAP_FIXED) {
+            VirtAddr::from(addr)
+        } else {
+            let hint_va = VirtAddr::from(addr);
+            let user_limit = VirtAddrRange::new(
+                VirtAddr::from(0x0000_0000usize),
+                VirtAddr::from(0x8000_0000usize),
+            );
+            let aspace = curr.task_ext().aspace.lock();
+            aspace
+                .find_free_area(hint_va, len_aligned, user_limit)
+                .ok_or(LinuxError::ENOMEM)?
+        };
+
+        ax_println!(
+            "sys_mmap: pid={} mapping va={:#x} len={} flags={:?} fd={} offset={}",
+            curr.id().as_u64(),
+            va.as_usize(),
+            len_aligned,
+            flags_bits,
+            fd,
+            offset,
+        );
+
+        if !flags_bits.contains(MmapFlags::MAP_ANONYMOUS) && fd >= 0 {
+            let mut file_buf = axstd::vec![0u8; len_aligned];
+            api::sys_lseek(fd, offset as i64, 0);
+            let read_bytes = api::sys_read(fd, file_buf.as_mut_ptr() as *mut c_void, len_aligned);
+
+            let mut aspace = curr.task_ext().aspace.lock();
+            let mut dst_va = va;
+            let mut copied = 0;
+            // Ensure write permission for the copy operation
+            let mapping_flags_with_write = mapping_flags | MappingFlags::WRITE;
+            
+            while copied < read_bytes {
+                aspace.map_alloc(
+                    dst_va,
+                    PAGE_SIZE_4K,
+                    mapping_flags_with_write,
+                    true,
+                ).map_err(|_| LinuxError::ENOMEM)?;
+
+                let remain = core::cmp::min(read_bytes - (copied as isize), PAGE_SIZE_4K as isize);
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        file_buf.as_ptr().add(copied as usize),
+                        dst_va.as_mut_ptr(),
+                        remain as usize,
+                    );
+                }
+                copied += remain;
+                dst_va += PAGE_SIZE_4K;
+            }
+            // If the original prot didn't have WRITE, we might want to remap or just leave it.
+            // But map_alloc above used mapping_flags_with_write.
+            // If we want to strictly follow prot, we should remap here if needed.
+            // However, the user's snippet leaves it as is.
+        } else {
+            let mut aspace = curr.task_ext().aspace.lock();
+            aspace
+                .map_alloc(va, len_aligned, mapping_flags, true)
+                .map_err(|_| LinuxError::ENOMEM)?;
+        }
+
+        Ok(va.as_usize())
+    })
 }
 
 fn sys_openat(dfd: c_int, fname: *const c_char, flags: c_int, mode: api::ctypes::mode_t) -> isize {

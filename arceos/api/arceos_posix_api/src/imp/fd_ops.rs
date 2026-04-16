@@ -9,7 +9,7 @@ use spin::RwLock;
 use super::stdio::{stdin, stdout};
 use crate::ctypes;
 
-pub const AX_FILE_LIMIT: usize = 1024;
+pub const AX_FILE_LIMIT: usize = 32;
 
 #[allow(dead_code)]
 pub trait FileLike: Send + Sync {
